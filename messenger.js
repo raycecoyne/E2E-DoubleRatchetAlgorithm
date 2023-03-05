@@ -35,6 +35,7 @@ class MessengerClient {
     this.conns = {} // data for each active connection
     this.certs = {} // certificates of other users
     this.EGKeyPair = {} // keypair from generateCertificate
+
   }
 
   /**
@@ -47,8 +48,14 @@ class MessengerClient {
    * Return Type: certificate object/dictionary
    */
   async generateCertificate (username) {
-    throw ('not implemented!')
-    const certificate = {}
+    //throw ('not implemented!')
+    this.EGKeyPair = await generateEG()
+
+    const certificate = {
+      username: username,
+      pub: this.EGKeyPair.pub
+    }
+
     return certificate
   }
 
@@ -64,8 +71,18 @@ class MessengerClient {
   async receiveCertificate (certificate, signature) {
   // The signature will be on the output of stringifying the certificate
   // rather than on the certificate directly.
+    //throw ('not implemented!')
+  
     const certString = JSON.stringify(certificate)
-    throw ('not implemented!')
+    const verification = await verifyWithECDSA(this.caPublicKey, certString, signature)
+
+    if (verification) {
+      this.certs[certificate.username] = certificate.pub
+      //this.conns[certificate.username] = {sendChain:{}, receiveChain:{}}
+    }
+    else{
+      throw('Invalid certificate')
+    }
   }
 
   /**
@@ -78,9 +95,13 @@ class MessengerClient {
  * Return Type: Tuple of [dictionary, string]
  */
   async sendMessage (name, plaintext) {
-    throw ('not implemented!')
-    const header = {}
-    const ciphertext = ''
+    //throw ('not implemented!')
+    //Generate unique message key
+    const SharedSecretDH = await computeDH(this.EGKeyPair.sec,this.certs[name])
+    const derivedKey = await HMACtoAESKey(SharedSecretDH,"AESKeyGen")
+    const salt = await genRandomSalt()
+    const ciphertext = await encryptWithGCM(derivedKey,plaintext,salt)
+    const header = {salt: salt}
     return [header, ciphertext]
   }
 
@@ -94,9 +115,15 @@ class MessengerClient {
  * Return Type: string
  */
   async receiveMessage (name, [header, ciphertext]) {
-    throw ('not implemented!')
-    return plaintext
+    //throw ('not implemented!')
+    const SharedSecretDH = await computeDH(this.EGKeyPair.sec,this.certs[name])
+    const derivedKey = await HMACtoAESKey(SharedSecretDH,"AESKeyGen")
+    const plaintext = await decryptWithGCM(derivedKey,ciphertext,header.salt)
+    console.log()
+    
+    return byteArrayToString(plaintext)
   }
+
 };
 
 module.exports = {
