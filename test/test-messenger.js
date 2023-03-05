@@ -12,7 +12,8 @@ const {
   signWithECDSA,
   HMACtoAESKey,
   byteArrayToString,
-  govEncryptionDataStr
+  govEncryptionDataStr,
+  cryptoKeyToJSON
 } = require('../lib.js')
 
 const { subtle } = require('node:crypto').webcrypto

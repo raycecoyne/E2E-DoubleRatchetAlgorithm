@@ -19,6 +19,8 @@ const {
   cryptoKeyToJSON, // async
   govEncryptionDataStr
 } = require('./lib')
+//REMOVE THIS LATER
+const { subtle } = require('node:crypto').webcrypto
 
 /** ******* Implementation ********/
 
@@ -97,11 +99,20 @@ class MessengerClient {
   async sendMessage (name, plaintext) {
     //throw ('not implemented!')
     //Generate unique message key
-    const SharedSecretDH = await computeDH(this.EGKeyPair.sec,this.certs[name])
-    const derivedKey = await HMACtoAESKey(SharedSecretDH,"AESKeyGen")
+    let derivedKey = await computeDH(this.EGKeyPair.sec,this.certs[name])
+    derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")   
     const salt = await genRandomSalt()
-    const ciphertext = await encryptWithGCM(derivedKey,plaintext,salt)
-    const header = {salt: salt}
+
+    //Encrypt derivedKey for government decryption
+    let govKey = await computeDH(this.EGKeyPair.sec,this.govPublicKey)
+    govKey = await HMACtoAESKey(govKey,govEncryptionDataStr)
+    const saltGov = await genRandomSalt()
+    const plaintextGov = await subtle.exportKey("raw", derivedKey)
+    const ciphertextGov = await encryptWithGCM(govKey,plaintextGov,saltGov)
+    
+    //Return header/ciphertext for use by correspondent and government
+    const header = {receiverIV: salt, vGov:this.EGKeyPair.pub,  cGov:ciphertextGov, ivGov:saltGov}
+    const ciphertext = await encryptWithGCM(derivedKey,plaintext,salt, JSON.stringify(header))
     return [header, ciphertext]
   }
 
@@ -116,11 +127,10 @@ class MessengerClient {
  */
   async receiveMessage (name, [header, ciphertext]) {
     //throw ('not implemented!')
-    const SharedSecretDH = await computeDH(this.EGKeyPair.sec,this.certs[name])
-    const derivedKey = await HMACtoAESKey(SharedSecretDH,"AESKeyGen")
-    const plaintext = await decryptWithGCM(derivedKey,ciphertext,header.salt)
-    console.log()
+    let derivedKey = await computeDH(this.EGKeyPair.sec,this.certs[name])
+    derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")
     
+    const plaintext = await decryptWithGCM(derivedKey,ciphertext,header.receiverIV, JSON.stringify(header))
     return byteArrayToString(plaintext)
   }
 
