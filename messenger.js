@@ -82,7 +82,14 @@ class MessengerClient {
       this.certs[certificate.username] = certificate.pub
       //initialize connection chains with counterparty's public key 
       const initialPair = {pub: certificate.pub, sec: this.EGKeyPair.sec}
-      this.conns[certificate.username] = {SKs:this.EGKeyPair.sec, PKs:this.EGKeyPair.pub, PKr:certificate.pub, PKsOld:this.EGKeyPair.pub, sendChain:[], recChain:[], oldPairs:[]}
+      this.conns[certificate.username] = {
+        SKs:this.EGKeyPair.sec, 
+        PKs:this.EGKeyPair.pub, 
+        PKr:certificate.pub, 
+        sendChain:[], 
+        recChain:[], 
+        oldPairs:[]
+      }
     }
     else{
       throw('Invalid certificate')
@@ -240,7 +247,6 @@ class MessengerClient {
     this.conns[name].recChain[header.sendChainIndex-1][2] = "READ"
     return byteArrayToString(plaintext)
   }
-
 };
 
 module.exports = {
