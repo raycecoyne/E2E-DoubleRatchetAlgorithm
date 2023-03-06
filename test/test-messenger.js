@@ -520,14 +520,12 @@ describe('Messenger', function () {
       let result = await bob.receiveMessage('alice', ct1)
       expect(result).to.equal(message1)
       result = await bob.receiveMessage('alice', ct3)
-      console.log("2 received")
       expect(result).to.equal(message3)
       result = await bob.receiveMessage('alice', ct2)
       expect(result).to.equal(message2)
     })
 
     it('EXTRA CREDIT: handles messages where shuffling occurs around DH ratchet steps', async function () {
-      console.log("======================================================== SHUFFLE ======================================================== ")
       const alice = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const bob = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const aliceCertificate = await alice.generateCertificate('alice')
@@ -556,7 +554,6 @@ describe('Messenger', function () {
 
       result = await bob.receiveMessage('alice', ct3)
       expect(result).to.equal(message3)
-      console.log("======================================================== Weird Delivery ======================================================== ")
       result = await bob.receiveMessage('alice', ct2)
       expect(result).to.equal(message2)
     })
