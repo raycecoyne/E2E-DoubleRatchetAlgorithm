@@ -150,16 +150,18 @@ describe('Messenger', function () {
       let ct = await alice.sendMessage('bob', message)
       let result = await bob.receiveMessage('alice', ct)
       expect(result).to.equal(message)
+
       message = 'Hello, Alice'
       ct = await bob.sendMessage('alice', message)
       result = await alice.receiveMessage('bob', ct)
       expect(result).to.equal(message)
+
       message = 'Meet for lunch?'
       ct = await bob.sendMessage('alice', message)
       result = await alice.receiveMessage('bob', ct)
       expect(result).to.equal(message)
     })
-
+    
     it('the government can decrypt an encrypted message from alice', async function () {
       const alice = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const bob = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
@@ -498,6 +500,7 @@ describe('Messenger', function () {
     })
 
     it('EXTRA CREDIT: handles shuffled messages in single stream', async function () {
+      console.log("======================================================== SHUFFLE ======================================================== ")
       const alice = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const bob = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const aliceCertificate = await alice.generateCertificate('alice')
@@ -518,6 +521,7 @@ describe('Messenger', function () {
       let result = await bob.receiveMessage('alice', ct1)
       expect(result).to.equal(message1)
       result = await bob.receiveMessage('alice', ct3)
+      console.log("2 received")
       expect(result).to.equal(message3)
       result = await bob.receiveMessage('alice', ct2)
       expect(result).to.equal(message2)
@@ -557,4 +561,5 @@ describe('Messenger', function () {
       expect(result).to.equal(message2)
     })
   })
+
 })

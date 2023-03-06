@@ -80,7 +80,9 @@ class MessengerClient {
 
     if (verification) {
       this.certs[certificate.username] = certificate.pub
-      //this.conns[certificate.username] = {sendChain:{}, receiveChain:{}}
+      //initialize connection chains with counterparty's public key 
+      const initialPair = {pub: certificate.pub, sec: this.EGKeyPair.sec}
+      this.conns[certificate.username] = {SKs:this.EGKeyPair.sec, PKs:this.EGKeyPair.pub, PKr:certificate.pub, PKsOld:this.EGKeyPair.pub, sendChain:[], recChain:[]}
     }
     else{
       throw('Invalid certificate')
@@ -98,9 +100,38 @@ class MessengerClient {
  */
   async sendMessage (name, plaintext) {
     //throw ('not implemented!')
-    //Generate unique message key
-    let derivedKey = await computeDH(this.EGKeyPair.sec,this.certs[name])
-    derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")   
+    this.conns[name].recChain = []
+
+    //Generate unique message keypair for sent messages
+    const newKeyPair = await generateEG()
+    this.conns[name].SKs = newKeyPair.sec
+    this.conns[name].PKs = newKeyPair.pub
+
+    const secKey = this.conns[name].SKs
+    const pubKey = this.conns[name].PKr
+    const dhSecret = await computeDH(secKey,pubKey)
+    const dhSecretFlat = await subtle.exportKey("raw", dhSecret)
+
+    let kdfInput
+    if (this.conns[name].sendChain.length===0){
+      kdfInput = dhSecret
+    }
+    else{
+      kdfInput=this.conns[name].sendChain[this.conns[name].sendChain.length-1][0]
+      console.log("FOUND OLD CHAIN")
+    }
+    console.log(await cryptoKeyToJSON(kdfInput))
+    console.log(dhSecretFlat)
+    const hkdfSalt = await HMACtoHMACKey(kdfInput, dhSecretFlat)
+    let derivedKeyPair = await HKDF(kdfInput,hkdfSalt,"ratchet-str")
+    derivedKeyPair.push("UNREAD")
+    this.conns[name].sendChain.push(derivedKeyPair)
+
+    console.log("SEND CHAIN TO", name)
+    await MessengerClient.printKeyList(this.conns[name].sendChain)
+
+    let derivedKey = derivedKeyPair[1]
+    derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")
     const salt = await genRandomSalt()
 
     //Encrypt derivedKey for government decryption
@@ -111,7 +142,14 @@ class MessengerClient {
     const ciphertextGov = await encryptWithGCM(govKey,plaintextGov,saltGov)
     
     //Return header/ciphertext for use by correspondent and government
-    const header = {receiverIV: salt, vGov:this.EGKeyPair.pub,  cGov:ciphertextGov, ivGov:saltGov}
+    const header = {
+      newPubKey: this.conns[name].PKs,
+      receiverIV: salt, 
+      vGov:this.EGKeyPair.pub,  
+      cGov:ciphertextGov, ivGov:saltGov, 
+      sendChainIndex: this.conns[name].sendChain.length
+    }
+    console.log("INDEX " , this.conns[name].sendChain.length)
     const ciphertext = await encryptWithGCM(derivedKey,plaintext,salt, JSON.stringify(header))
     return [header, ciphertext]
   }
@@ -127,11 +165,73 @@ class MessengerClient {
  */
   async receiveMessage (name, [header, ciphertext]) {
     //throw ('not implemented!')
-    let derivedKey = await computeDH(this.EGKeyPair.sec,this.certs[name])
+    this.conns[name].PKr = header.newPubKey
+    this.conns[name].sendChain = []
+    //For starting new chains or backfilling missed messages
+    let derivedKeyPair
+    let hkdfSalt 
+    console.log("Send Chain Index", header.sendChainIndex)
+    if (this.conns[name].recChain.length===0){
+      const secKey = this.conns[name].SKs
+      const pubKey = this.conns[name].PKr
+      const dhSecret = await computeDH(secKey,pubKey)
+      const dhSecretFlat = await subtle.exportKey("raw", dhSecret)
+  
+      const rootKey = await computeDH(secKey,pubKey)
+      hkdfSalt = await HMACtoHMACKey(rootKey, dhSecretFlat)
+
+      derivedKeyPair = await HKDF(rootKey,hkdfSalt,"ratchet-str")
+      derivedKeyPair.push("UNREAD")
+      this.conns[name].recChain.push(derivedKeyPair)
+    }
+
+    if(header.sendChainIndex > this.conns[name].recChain.length){
+      const secKey = this.conns[name].SKs
+      const pubKey = this.conns[name].PKr
+      const dhSecret = await computeDH(secKey,pubKey)
+      const dhSecretFlat = await subtle.exportKey("raw", dhSecret)
+
+      for(let i=this.conns[name].recChain.length-1; i<header.sendChainIndex-1; i++){
+        console.log("Run",i)
+        let kdfInput = this.conns[name].recChain[i][0]
+        console.log(await cryptoKeyToJSON(kdfInput))
+        console.log(dhSecretFlat)
+        hkdfSalt = await HMACtoHMACKey(kdfInput, dhSecretFlat)
+        derivedKeyPair = await HKDF(kdfInput,hkdfSalt,"ratchet-str")
+        derivedKeyPair.push("UNREAD")
+        this.conns[name].recChain.push(derivedKeyPair)
+      }
+    }
+
+
+    console.log("RECEIVE CHAIN from ", name)
+    await MessengerClient.printKeyList(this.conns[name].recChain)
+    console.log("END")
+
+    if(this.conns[name].recChain[header.sendChainIndex-1][2]== "READ"){
+      throw "REPLAY ATTACK"
+    }
+
+    let derivedKey = this.conns[name].recChain[header.sendChainIndex-1][1]
     derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")
-    
     const plaintext = await decryptWithGCM(derivedKey,ciphertext,header.receiverIV, JSON.stringify(header))
+    this.conns[name].recChain[header.sendChainIndex-1][2] = "READ"
     return byteArrayToString(plaintext)
+  }
+
+  static async printKeyList(list){
+    for (const x of list) {
+      for (const y of x){ 
+        try{
+          let z = await cryptoKeyToJSON(y)
+          console.log("      ", z.k)
+        }
+        catch{
+          console.log("      ", y)
+        }
+      } 
+      console.log("---------");
+    }
   }
 
 };
