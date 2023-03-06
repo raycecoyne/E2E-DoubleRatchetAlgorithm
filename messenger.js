@@ -120,7 +120,6 @@ class MessengerClient {
     else{
       kdfInput=this.conns[name].sendChain[this.conns[name].sendChain.length-1][0]
     }
-
     const flatKey = await subtle.exportKey("raw", this.conns[name].PKr)
     const hkdfSalt = await HMACtoHMACKey(kdfInput, flatKey)
     let derivedKeyPair = await HKDF(kdfInput,hkdfSalt,"ratchet-str")
@@ -185,7 +184,6 @@ class MessengerClient {
 
     if(header.sendChainIndex > this.conns[name].recChain.length){
       for(let i=this.conns[name].recChain.length-1; i<header.sendChainIndex-1; i++){
-        console.log("Run",i)
         let kdfInput = this.conns[name].recChain[i][0]
         hkdfSalt = await HMACtoHMACKey(kdfInput, flatKey)
         derivedKeyPair = await HKDF(kdfInput,hkdfSalt,"ratchet-str")
@@ -193,10 +191,6 @@ class MessengerClient {
         this.conns[name].recChain.push(derivedKeyPair)
       }
     }
-
-    console.log("RECEIVE CHAIN from ", name)
-    await MessengerClient.printKeyList(this.conns[name].recChain)
-    console.log("END")
 
     if(this.conns[name].recChain[header.sendChainIndex-1][2]== "READ"){
       throw "REPLAY ATTACK"
@@ -210,7 +204,6 @@ class MessengerClient {
     }
     catch{
       //Attempt message recovery using old keys cache
-      console.log("TEST PAIRS")
       for(let i=0; i<this.conns[name].oldPairs.length; i++){
         let pubKeyTest = header.newPubKey
         let secKeyTest = this.conns[name].oldPairs[i].sec
@@ -224,16 +217,12 @@ class MessengerClient {
         recChainTest.push(derivedKeyPair)  
 
         for(let i=recChainTest.length-1; i<header.sendChainIndex-1; i++){
-          console.log("Run",i)
           let kdfInputTest = recChainTest[i][0]
           hkdfSaltTest = await HMACtoHMACKey(kdfInputTest, flatKeyTest)
           derivedKeyPair = await HKDF(kdfInputTest,hkdfSaltTest,"ratchet-str")
           derivedKeyPair.push("UNREAD")
           recChainTest.push(derivedKeyPair)
         }
-
-        console.log("TEST REC CHAIN")
-        await MessengerClient.printKeyList(recChainTest)
 
         let derivedKeyTest = recChainTest[header.sendChainIndex-1][1]
         derivedKeyTest = await HMACtoAESKey(derivedKeyTest,"AESKeyGen")
@@ -250,21 +239,6 @@ class MessengerClient {
     }
     this.conns[name].recChain[header.sendChainIndex-1][2] = "READ"
     return byteArrayToString(plaintext)
-  }
-
-  static async printKeyList(list){
-    for (const x of list) {
-      for (const y of x){ 
-        try{
-          let z = await cryptoKeyToJSON(y)
-          console.log("      ", z.k)
-        }
-        catch{
-          console.log("      ", y)
-        }
-      } 
-      console.log("---------");
-    }
   }
 
 };
