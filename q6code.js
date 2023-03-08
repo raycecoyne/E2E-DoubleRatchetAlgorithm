@@ -47,7 +47,8 @@ const rsa_test = async function(m) {
 }
   
   const main = async function() {
-    m = 'using cryptography correctly is important'
+    let m = 'using cryptography correctly is important'
+    console.log(m)
     await rsa_test(m);
     await ecdsa_test(m);
   }  
