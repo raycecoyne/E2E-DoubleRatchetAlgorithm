@@ -80,7 +80,7 @@ class MessengerClient {
     if (verification) {
       this.certs[certificate.username] = certificate.pub
       //initialize connection chains with counterparty's public key 
-      const initialPair = {pub: certificate.pub, sec: this.EGKeyPair.sec}
+      //const initialPair = {pub: certificate.pub, sec: this.EGKeyPair.sec}
       this.conns[certificate.username] = {
         SKs:this.EGKeyPair.sec, 
         PKs:this.EGKeyPair.pub, 
@@ -88,7 +88,8 @@ class MessengerClient {
         sendChain:[], 
         recChain:[], 
         oldPairs:[],
-        SKsLast:""
+        SKsLast:this.EGKeyPair.sec,
+        PKrFirst:certificate.pub
       }
     }
     else{
@@ -115,7 +116,7 @@ class MessengerClient {
     let kdfInput
     if (this.conns[name].sendChain.length===0){
       //cache old pairs for delivery failsafes
-      this.conns[name].oldPairs.push({sec: this.conns[name].SKs, pub: this.conns[name].PKs, secLast:this.conns[name].SKsLast})
+      this.conns[name].oldPairs.push({sec: this.conns[name].SKs, secLast:this.conns[name].SKsLast})
       while(this.conns[name].oldPairs.length > 5){
         // The memory cost of key storage for your algorithm should always be O(1) - 5 records long in this case
         const removedItem = this.conns[name].oldPairs.shift()
@@ -123,6 +124,7 @@ class MessengerClient {
 
       //Generate ElGamal key pairs for the Diffie-Hellman key exchange
       const newKeyPair = await generateEG()
+      this.conns[name].SKsLast = this.conns[name].SKs
       this.conns[name].SKs = newKeyPair.sec
       this.conns[name].PKs = newKeyPair.pub
 
@@ -144,6 +146,11 @@ class MessengerClient {
     let derivedKeyAES = await HMACtoAESKey(derivedKey,"AESKeyGen")
     //Generate a new random iv every time we encrypt with AES-GCM
     const salt = await genRandomSalt()
+
+    //console.log("SEND CHAIN to ", name)
+    //await MessengerClient.printKeyList(this.conns[name].sendChain)
+    //console.log("END")
+
 
     //Encrypt derivedKey for government decryption
     let govKey = await computeDH(this.EGKeyPair.sec,this.govPublicKey)
@@ -183,7 +190,6 @@ class MessengerClient {
 
     //Compute first Diffie Hellman from existing secret+public combo
     const dhSecret1 = await computeDH(this.conns[name].SKs, this.conns[name].PKr) 
-    
     if(header.newPubKey != this.conns[name].PKr){
       this.conns[name].PKr = header.newPubKey
       this.conns[name].recChain = []
@@ -220,6 +226,12 @@ class MessengerClient {
       throw "REPLAY ATTACK"
     }
 
+    /*
+    console.log("REC CHAIN to ", name)
+    await MessengerClient.printKeyList(this.conns[name].recChain)
+    console.log("END")
+    */
+
     let derivedKey = this.conns[name].recChain[header.sendChainIndex-1][1]
     derivedKey = await HMACtoAESKey(derivedKey,"AESKeyGen")
     let plaintext
@@ -230,21 +242,24 @@ class MessengerClient {
       //Attempt message recovery using old keys cache
       for(let i=0; i<this.conns[name].oldPairs.length; i++){
         let pubKeyTest = header.newPubKey
-        let secKeyLastTest = this.conns[name].oldPairs[i].secLast
         let secKeyTest = this.conns[name].oldPairs[i].sec
+        let secKeyLastTest = this.conns[name].oldPairs[i].secLast
 
-        let dhSecret1Test = await computeDH(secKeyLastTest,pubKeyTest)
+        let dhSecret1Test = await computeDH(secKeyLastTest,this.conns[name].PKrFirst)
         let dhSecret2Test = await computeDH(secKeyTest,pubKeyTest)
-        let hkdfSaltTest = await HMACtoHMACKey(dhSecret1Test, "HMAC")
-
+        let hkdfSaltTest = await HMACtoHMACKey(dhSecret1Test, "HMAC") 
+        
         derivedKeyPair = await HKDF(dhSecret2Test,hkdfSaltTest,"ratchet-str")
         derivedKeyPair.push("UNREAD")
         let recChainTest = []
         recChainTest.push(derivedKeyPair)  
-
+        
+        let kdfInputTest
         for(let i=recChainTest.length-1; i<header.sendChainIndex-1; i++){
-          let kdfInputTest = recChainTest[i][0]
-          hkdfSaltTest = await HMACtoHMACKey(kdfInputTest, "HMAC")
+          dhSecret1Test = dhSecret2Test
+
+          kdfInputTest = recChainTest[i][0]
+          hkdfSaltTest = await HMACtoHMACKey(dhSecret1Test, "HMAC")
           derivedKeyPair = await HKDF(kdfInputTest,hkdfSaltTest,"ratchet-str")
           derivedKeyPair.push("UNREAD")
           recChainTest.push(derivedKeyPair)
@@ -266,6 +281,22 @@ class MessengerClient {
     this.conns[name].recChain[header.sendChainIndex-1][2] = "READ"
     return byteArrayToString(plaintext)
   }
+  /*
+  static async printKeyList(list){
+    for (const x of list) {
+      for (const y of x){ 
+        try{
+          let z = await cryptoKeyToJSON(y)
+          console.log("      ", z.k)
+        }
+        catch{
+          console.log("      ", y)
+        }
+      } 
+      console.log("---------");
+    }
+  }
+  */
 };
 
 module.exports = {

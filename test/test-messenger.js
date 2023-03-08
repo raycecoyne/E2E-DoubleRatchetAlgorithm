@@ -525,7 +525,9 @@ describe('Messenger', function () {
       expect(result).to.equal(message2)
     })
 
+
     it('EXTRA CREDIT: handles messages where shuffling occurs around DH ratchet steps', async function () {
+      console.log("========================================================================================================")
       const alice = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const bob = new MessengerClient(caKeyPair.pub, govKeyPair.pub)
       const aliceCertificate = await alice.generateCertificate('alice')
